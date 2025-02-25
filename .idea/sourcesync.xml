@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SourceSyncRemoteConfigurationsService"><![CDATA[{
+  "connections": [
+    {
+      "type": "ssh_configuration",
+      "name": "Hightech",
+      "hostname": "65.21.35.102",
+      "username": "root",
+      "remote_workspace_path": "/var/lib/pterodactyl/volumes/306b3c5a-ad6f-4b1b-975d-0d610c8e1698"
+    }
+  ],
+  "mainConnection": "Hightech"
+}]]></component>
+</project>

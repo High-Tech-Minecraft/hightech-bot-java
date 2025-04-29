@@ -67,33 +67,30 @@ class Bot : ListenerAdapter() {
 
         val dotenv = Dotenv.configure().load()
         val url = dotenv["DATABASE_URL"]
-        val connection = DriverManager.getConnection(url)
-        val statement = connection.createStatement()
-        val statement2 = connection.createStatement()
-        val typeResult = statement.executeQuery("SELECT type FROM myschema.\"todos\"")
-        val titleResult = statement2.executeQuery("SELECT title FROM myschema.\"todos\"")
 
         event.deferReply(true).queue()
 
-        while (typeResult.next()) {
-            when (typeResult.getString(1)) {
-                "survival" -> {
-                    titleResult.next()
-                    survivalTodos.add(titleResult.getString("title"))
-                }
-                "creative" -> {
-                    titleResult.next()
-                    creativeTodos.add(titleResult.getString("title"))
-                }
-                else -> {
-                    System.err.println("${typeResult.getString(1)} is not a real server type")
+        // Use a single query to fetch both type and title at once
+        // Use try-with-resources equivalent in Kotlin to ensure proper resource cleanup
+        DriverManager.getConnection(url).use { connection ->
+            connection.createStatement().use { statement ->
+                // Single query to get both columns at once
+                val result = statement.executeQuery("SELECT type, title FROM myschema.\"todos\"")
+
+                // Process the results
+                while (result.next()) {
+                    val type = result.getString("type")
+                    val title = result.getString("title")
+
+                    when (type) {
+                        "survival" -> survivalTodos.add(title)
+                        "creative" -> creativeTodos.add(title)
+                        else -> System.err.println("$type is not a real server type")
+                    }
+                    println(type)
                 }
             }
-            println(typeResult.getString(1))
         }
-
-        typeResult.close()
-        statement.close()
 
         val survivalDescription = StringBuilder()
         val creativeDescription = StringBuilder()

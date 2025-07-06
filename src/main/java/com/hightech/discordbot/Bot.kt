@@ -18,33 +18,79 @@ import java.awt.Color
 import java.io.IOException
 import java.sql.DriverManager
 import java.sql.SQLException
+import java.util.concurrent.ThreadLocalRandom
 
 class Bot : ListenerAdapter() {
+    companion object {
+        // Cache Dotenv instance to avoid reloading environment variables
+        private val dotenv: Dotenv by lazy { Dotenv.configure().load() }
+        
+        @Throws(IOException::class, InterruptedException::class, SQLException::class)
+        @JvmStatic
+        fun main(arguments: Array<String>) {
+            val jda = JDABuilder.createDefault(
+                dotenv["BOT_TOKEN"],
+                GatewayIntent.GUILD_MEMBERS,
+                GatewayIntent.DIRECT_MESSAGES,
+                GatewayIntent.GUILD_WEBHOOKS,
+                GatewayIntent.GUILD_MESSAGES
+            )
+                .addEventListeners(Bot())
+                .enableIntents(GatewayIntent.GUILD_MEMBERS)
+                .setMemberCachePolicy(MemberCachePolicy.ALL)
+                .build().awaitReady()
+
+            val guildId = dotenv["GUILD_ID"] ?: throw IllegalStateException("GUILD_ID not found in environment")
+            val guild = jda.getGuildById(guildId.toLong()) ?: throw IllegalStateException("Guild not found")
+            val memberRoleId = dotenv["MEMBER_ROLE_ID"] ?: throw IllegalStateException("MEMBER_ROLE_ID not found in environment")
+            val memberRole = guild.getRoleById(memberRoleId.toLong())
+            guild.loadMembers()
+
+            val commands = jda.updateCommands()
+            commands.addCommands(
+                Commands.slash("santa", "Generates Secret Santa Partners and dms them")
+                    .addOptions(
+                        OptionData(OptionType.ROLE, "role", "The role of those participating")
+                            .setRequired(true)
+                    )
+                    .setGuildOnly(true)
+                    .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.ADMINISTRATOR))
+            )
+            commands.addCommands(
+                Commands.slash("online", "List online players for smp")
+                    .setGuildOnly(true)
+            )
+            commands.addCommands(
+                Commands.slash("todo", "sends todo list")
+                    .setGuildOnly(true)
+            )
+            commands.queue()
+        }
+    }
+
     override fun onSlashCommandInteraction(event: SlashCommandInteractionEvent) {
         if (event.guild == null) return
 
-        when (event.name) {
-            "santa" -> {
-                println("santa command called")
-                val role = event.getOption("role")!!.asRole
-                santa(event, role)
-            }
-            "online" -> {
-                println("online command called")
-                try {
+        try {
+            when (event.name) {
+                "santa" -> {
+                    println("santa command called")
+                    val role = event.getOption("role")?.asRole 
+                        ?: throw IllegalArgumentException("Role option is required")
+                    santa(event, role)
+                }
+                "online" -> {
+                    println("online command called")
                     online(event)
-                } catch (e: IOException) {
-                    throw RuntimeException(e)
                 }
-            }
-            "todo" -> {
-                println("todo command called")
-                try {
+                "todo" -> {
+                    println("todo command called")
                     todo(event)
-                } catch (e: SQLException) {
-                    throw RuntimeException(e)
                 }
             }
+        } catch (e: Exception) {
+            println("Error handling command ${event.name}: ${e.message}")
+            event.hook.sendMessage("An error occurred while processing your command. Please try again later.").queue()
         }
     }
 
@@ -65,8 +111,7 @@ class Bot : ListenerAdapter() {
         survivalList.setTimestamp(event.timeCreated)
         creativeList.setTimestamp(event.timeCreated)
 
-        val dotenv = Dotenv.configure().load()
-        val url = dotenv["DATABASE_URL"]
+        val url = Bot.dotenv["DATABASE_URL"] ?: throw IllegalStateException("DATABASE_URL not found in environment")
 
         event.deferReply(true).queue()
 
@@ -95,12 +140,13 @@ class Bot : ListenerAdapter() {
         val survivalDescription = StringBuilder()
         val creativeDescription = StringBuilder()
 
-        for (todo in survivalTodos) {
-            survivalDescription.append("• ").append(todo).append("\n")
+        // Use joinToString for better performance and readability
+        if (survivalTodos.isNotEmpty()) {
+            survivalDescription.append(survivalTodos.joinToString("\n") { "• $it" })
         }
 
-        for (todo in creativeTodos) {
-            creativeDescription.append("• ").append(todo).append("\n")
+        if (creativeTodos.isNotEmpty()) {
+            creativeDescription.append(creativeTodos.joinToString("\n") { "• $it" })
         }
 
         survivalList.setDescription(survivalDescription.toString())
@@ -113,106 +159,87 @@ class Bot : ListenerAdapter() {
 
     @Throws(IOException::class)
     fun online(event: SlashCommandInteractionEvent) {
-        val dotenv = Dotenv.configure().load()
         event.deferReply(false).queue()
-        val guild = event.guild
-        val memberRole = guild!!.getRoleById(dotenv["MEMBER_ROLE_ID"].toLong())
+        val guild = event.guild ?: throw IllegalStateException("Command must be used in a guild")
+        val memberRoleId = Bot.dotenv["MEMBER_ROLE_ID"] ?: throw IllegalStateException("MEMBER_ROLE_ID not found in environment")
+        val memberRole = guild.getRoleById(memberRoleId.toLong())
         val hook = event.hook
-        val rcon = Rcon.open(dotenv["SERVER_IP"], dotenv["PORT"].toInt())
-
-        if (rcon.authenticate(dotenv["RCON_PASSWORD"]) && event.member!!.roles.contains(memberRole)) {
-            hook.sendMessage(rcon.sendCommand("list").toString()).queue()
-            rcon.close()
-        } else {
-            println("Failed to authenticate")
+        
+        val serverIp = Bot.dotenv["SERVER_IP"] ?: throw IllegalStateException("SERVER_IP not found in environment")
+        val port = Bot.dotenv["PORT"]?.toIntOrNull() ?: throw IllegalStateException("PORT not found or invalid in environment")
+        val rconPassword = Bot.dotenv["RCON_PASSWORD"] ?: throw IllegalStateException("RCON_PASSWORD not found in environment")
+        
+        var rcon: Rcon? = null
+        try {
+            rcon = Rcon.open(serverIp, port)
+            val member = event.member ?: throw IllegalStateException("Member information not available")
+            
+            if (rcon.authenticate(rconPassword) && member.roles.contains(memberRole)) {
+                hook.sendMessage(rcon.sendCommand("list").toString()).queue()
+            } else {
+                println("Failed to authenticate or member doesn't have required role")
+                hook.sendMessage("You don't have permission to use this command.").queue()
+            }
+        } finally {
+            rcon?.close()
         }
     }
 
     fun santa(event: SlashCommandInteractionEvent, role: Role) {
-        val dotenv = Dotenv.configure().load()
         event.deferReply(true).queue()
         val hook = event.hook
 
-        if (!event.member!!.hasPermission(Permission.ADMINISTRATOR)) {
+        val member = event.member ?: throw IllegalStateException("Member information not available")
+        if (!member.hasPermission(Permission.ADMINISTRATOR)) {
             println("santa command not sent by admin")
             hook.sendMessage("You don't have the required permissions to run that command.").queue()
             return
         }
 
-        val membersList = ArrayList<String>()
-        val guild = checkNotNull(event.guild)
-        val admin = guild.getMemberById(dotenv["ADMIN_ID"].toLong())
+        val guild = event.guild ?: throw IllegalStateException("Command must be used in a guild")
+        val adminId = Bot.dotenv["ADMIN_ID"] ?: throw IllegalStateException("ADMIN_ID not found in environment")
+        val admin = guild.getMemberById(adminId.toLong())
         val members = guild.getMembersWithRoles(role)
 
-        for (member in members) {
-            membersList.add(member.effectiveName)
+        // Check if we have enough members for Secret Santa
+        if (members.size < 2) {
+            hook.sendMessage("Need at least 2 members to run Secret Santa!").queue()
+            return
         }
+
+        val membersList = members.map { it.effectiveName }.toMutableList()
 
         println("Gifter, Receiver")
 
         for (member in members) {
-            var randomIndex = Math.random() * membersList.size
-            while (membersList[randomIndex.toInt()] == member.effectiveName) {
-                randomIndex = Math.random() * membersList.size
+            // Remove current member from available targets to prevent self-assignment
+            val availableTargets = membersList.filter { it != member.effectiveName }
+            
+            if (availableTargets.isEmpty()) {
+                // This should not happen with proper logic, but handle gracefully
+                hook.sendMessage("Error: Unable to assign Secret Santa partners. Please try again.").queue()
+                return
             }
-
-            val message = "Make your thing for ${membersList[randomIndex.toInt()]} dm admin with any questions!"
-            val adminMessage = "${member.effectiveName}, ${membersList[randomIndex.toInt()]}"
+            
+            // Use ThreadLocalRandom for better performance and thread safety
+            val randomIndex = ThreadLocalRandom.current().nextInt(availableTargets.size)
+            val target = availableTargets[randomIndex]
+            
+            val message = "Make your thing for $target dm admin with any questions!"
+            val adminMessage = "${member.effectiveName}, $target"
 
             member.user.openPrivateChannel()
                 .flatMap { channel -> channel.sendMessage(message) }
                 .queue()
 
-            admin!!.user.openPrivateChannel()
-                .flatMap { channel -> channel.sendMessage(adminMessage) }
-                .queue()
+            admin?.user?.openPrivateChannel()
+                ?.flatMap { channel -> channel.sendMessage(adminMessage) }
+                ?.queue()
 
-            membersList.removeAt(randomIndex.toInt())
+            // Remove the assigned target from the list
+            membersList.remove(target)
         }
 
         hook.sendMessage("Success!").queue()
-    }
-
-    companion object {
-        @Throws(IOException::class, InterruptedException::class, SQLException::class)
-        @JvmStatic
-        fun main(arguments: Array<String>) {
-            val dotenv = Dotenv.configure().load()
-            val jda = JDABuilder.createDefault(
-                dotenv["BOT_TOKEN"],
-                GatewayIntent.GUILD_MEMBERS,
-                GatewayIntent.DIRECT_MESSAGES,
-                GatewayIntent.GUILD_WEBHOOKS,
-                GatewayIntent.GUILD_MESSAGES
-            )
-                .addEventListeners(Bot())
-                .enableIntents(GatewayIntent.GUILD_MEMBERS)
-                .setMemberCachePolicy(MemberCachePolicy.ALL)
-                .build().awaitReady()
-
-            val guild = jda.getGuildById(dotenv["GUILD_ID"].toLong())
-            val member = guild!!.getRoleById(dotenv["MEMBER_ROLE_ID"].toLong())
-            guild.loadMembers()
-
-            val commands = jda.updateCommands()
-            commands.addCommands(
-                Commands.slash("santa", "Generates Secret Santa Partners and dms them")
-                    .addOptions(
-                        OptionData(OptionType.ROLE, "role", "The role of those participating")
-                            .setRequired(true)
-                    )
-                    .setGuildOnly(true)
-                    .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.ADMINISTRATOR))
-            )
-            commands.addCommands(
-                Commands.slash("online", "List online players for smp")
-                    .setGuildOnly(true)
-            )
-            commands.addCommands(
-                Commands.slash("todo", "sends todo list")
-                    .setGuildOnly(true)
-            )
-            commands.queue()
-        }
     }
 }

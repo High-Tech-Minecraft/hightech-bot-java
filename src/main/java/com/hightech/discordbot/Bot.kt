@@ -4,7 +4,11 @@ import io.github.cdimascio.dotenv.Dotenv
 import net.dv8tion.jda.api.EmbedBuilder
 import net.dv8tion.jda.api.JDABuilder
 import net.dv8tion.jda.api.Permission
+import net.dv8tion.jda.api.entities.Guild
 import net.dv8tion.jda.api.entities.Role
+import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel
+import net.dv8tion.jda.api.events.guild.member.GuildMemberJoinEvent
+import net.dv8tion.jda.api.events.guild.member.GuildMemberRemoveEvent
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent
 import net.dv8tion.jda.api.hooks.ListenerAdapter
 import net.dv8tion.jda.api.interactions.commands.DefaultMemberPermissions
@@ -46,6 +50,9 @@ class Bot : ListenerAdapter() {
             val memberRole = guild.getRoleById(memberRoleId.toLong())
             guild.loadMembers()
 
+            // Update member count channel name on startup
+            updateMemberCountChannel(guild)
+
             val commands = jda.updateCommands()
             commands.addCommands(
                 Commands.slash("santa", "Generates Secret Santa Partners and dms them")
@@ -66,6 +73,28 @@ class Bot : ListenerAdapter() {
             )
             commands.queue()
         }
+
+        // Function to update member count channel name
+        fun updateMemberCountChannel(guild: Guild) {
+            val channelId = dotenv["MEMBER_COUNT_CHANNEL_ID"] ?: return
+            val channel = guild.getVoiceChannelById(channelId.toLong()) ?: return
+            val newName = "Members: ${guild.memberCount}"
+            if (channel.name != newName) {
+                channel.manager.setName(newName).reason("Updating member count").queue()
+            }
+        }
+    }
+
+    // Listen for member join event
+    override fun onGuildMemberJoin(event: GuildMemberJoinEvent) {
+        val guild = event.guild
+        Companion.updateMemberCountChannel(guild)
+    }
+
+    // Listen for member leave event
+    override fun onGuildMemberRemove(event: GuildMemberRemoveEvent) {
+        val guild = event.guild
+        Companion.updateMemberCountChannel(guild)
     }
 
     override fun onSlashCommandInteraction(event: SlashCommandInteractionEvent) {

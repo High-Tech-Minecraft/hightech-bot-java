@@ -18,10 +18,10 @@ repositories {
 }
 
 dependencies {
-    implementation ("io.github.cdimascio:dotenv-java:3.0.0")
+    implementation ("io.github.cdimascio:dotenv-java:3.2.0")
     implementation ("nl.vv32.rcon:rcon:1.2.0")
-    implementation("org.postgresql:postgresql:42.7.5")
-    implementation("net.dv8tion:JDA:5.5.1")
+    implementation("org.postgresql:postgresql:42.7.7")
+    implementation("net.dv8tion:JDA:5.6.1")
 }
 
 kotlin {

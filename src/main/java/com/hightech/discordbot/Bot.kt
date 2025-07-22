@@ -6,7 +6,6 @@ import net.dv8tion.jda.api.JDABuilder
 import net.dv8tion.jda.api.Permission
 import net.dv8tion.jda.api.entities.Guild
 import net.dv8tion.jda.api.entities.Role
-import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel
 import net.dv8tion.jda.api.entities.emoji.Emoji
 import net.dv8tion.jda.api.events.guild.member.GuildMemberJoinEvent
 import net.dv8tion.jda.api.events.guild.member.GuildMemberRemoveEvent
@@ -48,8 +47,6 @@ class Bot : ListenerAdapter() {
 
             val guildId = dotenv["GUILD_ID"] ?: throw IllegalStateException("GUILD_ID not found in environment")
             val guild = jda.getGuildById(guildId.toLong()) ?: throw IllegalStateException("Guild not found")
-            val memberRoleId = dotenv["MEMBER_ROLE_ID"] ?: throw IllegalStateException("MEMBER_ROLE_ID not found in environment")
-            val memberRole = guild.getRoleById(memberRoleId.toLong())
             guild.loadMembers()
 
             // Update member count channel name on startup
@@ -90,13 +87,13 @@ class Bot : ListenerAdapter() {
     // Listen for member join event
     override fun onGuildMemberJoin(event: GuildMemberJoinEvent) {
         val guild = event.guild
-        Companion.updateMemberCountChannel(guild)
+        updateMemberCountChannel(guild)
     }
 
     // Listen for member leave event
     override fun onGuildMemberRemove(event: GuildMemberRemoveEvent) {
         val guild = event.guild
-        Companion.updateMemberCountChannel(guild)
+        updateMemberCountChannel(guild)
     }
 
     override fun onSlashCommandInteraction(event: SlashCommandInteractionEvent) {
@@ -127,7 +124,7 @@ class Bot : ListenerAdapter() {
 
     // Listen for messages in the application channel to create polls
     override fun onMessageReceived(event: MessageReceivedEvent) {
-        val appChannelId = Bot.dotenv["APPLICATION_CHANNEL_ID"] ?: return
+        val appChannelId = dotenv["APPLICATION_CHANNEL_ID"] ?: return
         val botId = event.jda.selfUser.id
         if (event.channel.id != appChannelId) return
         if (event.author.id == botId) return
@@ -161,7 +158,7 @@ class Bot : ListenerAdapter() {
         survivalList.setTimestamp(event.timeCreated)
         creativeList.setTimestamp(event.timeCreated)
 
-        val url = Bot.dotenv["DATABASE_URL"] ?: throw IllegalStateException("DATABASE_URL not found in environment")
+        val url = dotenv["DATABASE_URL"] ?: throw IllegalStateException("DATABASE_URL not found in environment")
 
         event.deferReply(true).queue()
 
@@ -211,13 +208,13 @@ class Bot : ListenerAdapter() {
     fun online(event: SlashCommandInteractionEvent) {
         event.deferReply(false).queue()
         val guild = event.guild ?: throw IllegalStateException("Command must be used in a guild")
-        val memberRoleId = Bot.dotenv["MEMBER_ROLE_ID"] ?: throw IllegalStateException("MEMBER_ROLE_ID not found in environment")
+        val memberRoleId = dotenv["MEMBER_ROLE_ID"] ?: throw IllegalStateException("MEMBER_ROLE_ID not found in environment")
         val memberRole = guild.getRoleById(memberRoleId.toLong())
         val hook = event.hook
         
-        val serverIp = Bot.dotenv["SERVER_IP"] ?: throw IllegalStateException("SERVER_IP not found in environment")
-        val port = Bot.dotenv["PORT"]?.toIntOrNull() ?: throw IllegalStateException("PORT not found or invalid in environment")
-        val rconPassword = Bot.dotenv["RCON_PASSWORD"] ?: throw IllegalStateException("RCON_PASSWORD not found in environment")
+        val serverIp = dotenv["SERVER_IP"] ?: throw IllegalStateException("SERVER_IP not found in environment")
+        val port = dotenv["PORT"]?.toIntOrNull() ?: throw IllegalStateException("PORT not found or invalid in environment")
+        val rconPassword = dotenv["RCON_PASSWORD"] ?: throw IllegalStateException("RCON_PASSWORD not found in environment")
         
         var rcon: Rcon? = null
         try {
@@ -247,7 +244,7 @@ class Bot : ListenerAdapter() {
         }
 
         val guild = event.guild ?: throw IllegalStateException("Command must be used in a guild")
-        val adminId = Bot.dotenv["ADMIN_ID"] ?: throw IllegalStateException("ADMIN_ID not found in environment")
+        val adminId = dotenv["ADMIN_ID"] ?: throw IllegalStateException("ADMIN_ID not found in environment")
         val admin = guild.getMemberById(adminId.toLong())
         val members = guild.getMembersWithRoles(role)
 

@@ -7,9 +7,11 @@ import net.dv8tion.jda.api.Permission
 import net.dv8tion.jda.api.entities.Guild
 import net.dv8tion.jda.api.entities.Role
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel
+import net.dv8tion.jda.api.entities.emoji.Emoji
 import net.dv8tion.jda.api.events.guild.member.GuildMemberJoinEvent
 import net.dv8tion.jda.api.events.guild.member.GuildMemberRemoveEvent
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent
 import net.dv8tion.jda.api.hooks.ListenerAdapter
 import net.dv8tion.jda.api.interactions.commands.DefaultMemberPermissions
 import net.dv8tion.jda.api.interactions.commands.OptionType
@@ -122,6 +124,25 @@ class Bot : ListenerAdapter() {
             event.hook.sendMessage("An error occurred while processing your command. Please try again later.").queue()
         }
     }
+
+    // Listen for messages in the application channel to create polls
+    override fun onMessageReceived(event: MessageReceivedEvent) {
+        val appChannelId = Bot.dotenv["APPLICATION_CHANNEL_ID"] ?: return
+        val botId = event.jda.selfUser.id
+        if (event.channel.id != appChannelId) return
+        if (event.author.id == botId) return
+
+        // Start a thread for the application
+        event.message.createThreadChannel("Application")
+            .queue { thread ->
+                val poll = net.dv8tion.jda.api.utils.messages.MessagePollData.builder("Accept?")
+                    .addAnswer("Accept", Emoji.fromUnicode("✅"))
+                    .addAnswer("Deny", Emoji.fromUnicode("❌"))
+                    .build()
+                event.channel.sendMessage("Vote").setPoll(poll).queue()
+            }
+    }
+
 
     @Throws(SQLException::class)
     fun todo(event: SlashCommandInteractionEvent) {

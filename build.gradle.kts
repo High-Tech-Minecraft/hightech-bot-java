@@ -27,3 +27,7 @@ dependencies {
 kotlin {
     jvmToolchain(21)
 }
+tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
+    // minimize() // Do not use with Java 21
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/LICENSE*", "META-INF/NOTICE*")
+}
